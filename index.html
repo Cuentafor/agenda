@@ -80,7 +80,7 @@
   .sheet h3{font-size:1.15rem;font-weight:800;margin-bottom:14px}
   .sheet p.sub{color:var(--muted);font-weight:700;font-size:.9rem;margin:-8px 0 12px}
   label.f{display:block;font-size:.78rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 6px}
-  input[type=text],input[type=time],input[type=password]{width:100%;font:inherit;font-weight:700;font-size:1rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 12px;-webkit-appearance:none}
+  input[type=text],input[type=time],input[type=password],input[type=date]{width:100%;font:inherit;font-weight:700;font-size:1rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 12px;-webkit-appearance:none}
   input:focus{outline:2px solid var(--accent);outline-offset:-1px}
   .fila{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .opciones{display:flex;flex-wrap:wrap;gap:6px}
@@ -916,18 +916,163 @@ function irAhora(){
   });
 }
 
+/* ---------- Añadir al calendario (.ics) ---------- */
+const VTZ = ["BEGIN:VTIMEZONE","TZID:Europe/Madrid",
+  "BEGIN:DAYLIGHT","TZOFFSETFROM:+0100","TZOFFSETTO:+0200","TZNAME:CEST","DTSTART:19700329T020000","RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU","END:DAYLIGHT",
+  "BEGIN:STANDARD","TZOFFSETFROM:+0200","TZOFFSETTO:+0100","TZNAME:CET","DTSTART:19701025T030000","RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU","END:STANDARD",
+  "END:VTIMEZONE"];
+const pad = n => String(n).padStart(2,"0");
+const icsTxt = s => String(s ?? "").replace(/\\/g,"\\\\").replace(/;/g,"\;").replace(/,/g,"\\,").replace(/\r?\n/g,"\\n");
+function plegar(linea){
+  // Las líneas .ics no deben pasar de 75 bytes
+  const enc = new TextEncoder(); const out = []; let actual = "", bytes = 0, limite = 75;
+  for (const ch of linea){
+    const b = enc.encode(ch).length;
+    if (bytes + b > limite){ out.push(actual); actual = " "; bytes = 1; limite = 75; }
+    actual += ch; bytes += b;
+  }
+  out.push(actual); return out.join("\r\n");
+}
+const fechaLocal = (d, hhmm) => `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${hhmm.replace(":","")}00`;
+function generarICS(personas, tiposFuera, aviso, hasta){
+  const L = ["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Agenda semanal//ES","CALSCALE:GREGORIAN","METHOD:PUBLISH",
+    "X-WR-CALNAME:" + icsTxt("Agenda · " + personas.map(p=>p.nombre).join(", ")), "X-WR-TIMEZONE:Europe/Madrid", ...VTZ];
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const stamp = new Date().toISOString().replace(/[-:]/g,"").replace(/\.\d+/,"");
+  const [ay,am,ad] = hasta.split("-").map(Number);
+  const until = `${ay}${pad(am)}${pad(ad)}T225959Z`;
+  let n = 0;
+  personas.forEach(p=>p.dias.forEach((lista, di)=>lista.forEach(a=>{
+    if (tiposFuera.has(a.tipo || "")) return;
+    const ini = new Date(hoy); ini.setDate(hoy.getDate() + ((di - hoyIdx() + 7) % 7));
+    if (ini > new Date(ay, am-1, ad)) return;
+    let finHHMM = a.fin, finD = new Date(ini);
+    if (!finHHMM){ const m = min(a.ini) + 30; finHHMM = pad(Math.floor(m/60)%24) + ":" + pad(m%60); if (m >= 1440) finD.setDate(finD.getDate()+1); }
+    else if (nocturna(a)) finD.setDate(finD.getDate()+1);
+    const t = tipo(a.tipo);
+    const titulo = `${a.emoji || t.emoji || ""} ${a.nombre}${personas.length > 1 ? " · " + p.nombre : ""}`.trim();
+    L.push("BEGIN:VEVENT",
+      `UID:${p.id}-${a.id}-${di}@agenda-semanal`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;TZID=Europe/Madrid:${fechaLocal(ini, a.ini)}`,
+      `DTEND;TZID=Europe/Madrid:${fechaLocal(finD, finHHMM)}`,
+      `RRULE:FREQ=WEEKLY;UNTIL=${until}`,
+      "SUMMARY:" + icsTxt(titulo),
+      "DESCRIPTION:" + icsTxt(`${p.nombre}${t.id ? " · " + t.nombre : ""}`),
+      "CATEGORIES:" + icsTxt(t.nombre));
+    if (aviso > 0) L.push("BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:" + icsTxt(titulo), `TRIGGER:-PT${aviso}M`, "END:VALARM");
+    L.push("END:VEVENT"); n++;
+  })));
+  L.push("END:VCALENDAR");
+  return { texto: L.map(plegar).join("\r\n") + "\r\n", n };
+}
+function finDeCurso(){
+  const h = new Date(), y = h.getMonth() >= 6 ? h.getFullYear()+1 : h.getFullYear();
+  return `${y}-06-30`;
+}
+function abrirCalendario(){
+  const pref = ls.get("agenda-cal") || {};
+  const sel = new Set(persona() ? [persona().id] : []);
+  const fuera = new Set(pref.fuera || []);
+  let aviso = pref.aviso ?? 10;
+  abrir(`
+    <h3>📅 Añadir al calendario</h3>
+    <p class="sub">Crea los eventos semanales con aviso en el calendario del móvil.</p>
+    <label class="f">¿De quién?</label>
+    <div class="opciones" id="cPer"></div>
+    <label class="f">Avisar antes</label>
+    <div class="opciones" id="cAv"></div>
+    <div id="cOtro" style="margin-top:8px"></div>
+    <label class="f">Qué incluir</label>
+    <div class="opciones" id="cTip"></div>
+    <label class="f" for="cHasta">Repetir cada semana hasta</label>
+    <input type="date" id="cHasta">
+    <div class="nota" id="cRes"></div>
+    <div class="err" id="cErr"></div>
+    <div class="pie">
+      <button type="button" class="btn" id="cCancel">Cancelar</button>
+      <button type="button" class="btn pri" id="cOk">Descargar</button>
+    </div>`);
+  $("cHasta").value = pref.hasta && pref.hasta > new Date().toISOString().slice(0,10) ? pref.hasta : finDeCurso();
+  const pw = $("cPer");
+  state.personas.forEach(p=>{
+    const b = document.createElement("button"); b.type="button"; b.className="chip"; b.textContent=p.nombre;
+    b.setAttribute("aria-pressed", sel.has(p.id));
+    b.onclick = ()=>{ sel.has(p.id) ? sel.delete(p.id) : sel.add(p.id); b.setAttribute("aria-pressed", sel.has(p.id)); pintarTipos(); resumen(); };
+    pw.appendChild(b);
+  });
+  const aw = $("cAv");
+  const OPC = [[0,"Sin aviso"],[5,"5 min"],[10,"10 min"],[15,"15 min"],[30,"30 min"],[60,"1 hora"],[-1,"Otro…"]];
+  const pintarAviso = ()=>{
+    const esOtro = !OPC.some(([v])=>v===aviso);
+    [...aw.children].forEach(b=>{ const v = +b.dataset.v; b.setAttribute("aria-pressed", v===-1 ? esOtro : v===aviso); });
+    $("cOtro").innerHTML = esOtro ? `<div style="display:flex;align-items:center;gap:8px"><input type="number" id="cMin" min="1" max="1440" inputmode="numeric" style="width:110px;font:inherit;font-weight:700;font-size:1rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px"><b>minutos antes</b></div>` : "";
+    if (esOtro){ $("cMin").value = aviso; $("cMin").oninput = ()=>{ aviso = Math.max(1, Math.min(1440, parseInt($("cMin").value)||0)); }; }
+  };
+  OPC.forEach(([v,t])=>{
+    const b = document.createElement("button"); b.type="button"; b.className="op"; b.textContent=t; b.dataset.v=v;
+    b.onclick = ()=>{ aviso = v===-1 ? (OPC.some(([x])=>x===aviso) ? 45 : aviso) : v; pintarAviso(); };
+    aw.appendChild(b);
+  });
+  pintarAviso();
+  const tw = $("cTip");
+  function pintarTipos(){
+    tw.innerHTML = "";
+    const usados = new Set();
+    state.personas.filter(p=>sel.has(p.id)).forEach(p=>p.dias.forEach(d=>d.forEach(a=>usados.add(a.tipo||""))));
+    [...usados].forEach(id=>{
+      const t = tipo(id), c = safeColor(t.color);
+      const b = document.createElement("button"); b.type="button"; b.className="op";
+      b.textContent = (t.emoji ? t.emoji+" " : "") + t.nombre; b.style.color=c; b.style.background=c+"22";
+      b.setAttribute("aria-pressed", !fuera.has(id));
+      b.onclick = ()=>{ fuera.has(id) ? fuera.delete(id) : fuera.add(id); b.setAttribute("aria-pressed", !fuera.has(id)); resumen(); };
+      tw.appendChild(b);
+    });
+    if (!usados.size) tw.innerHTML = `<span class="nota">Elige al menos una persona</span>`;
+  }
+  const preparar = ()=>{
+    const ps = state.personas.filter(p=>sel.has(p.id));
+    return ps.length ? generarICS(ps, fuera, aviso, $("cHasta").value || finDeCurso()) : {texto:"", n:0};
+  };
+  function resumen(){ const {n} = preparar(); $("cRes").textContent = n ? `${n} actividades semanales` : ""; }
+  $("cHasta").onchange = resumen;
+  pintarTipos(); resumen();
+  const puedeCompartir = (()=>{ try { return !!(navigator.canShare && navigator.canShare({files:[new File(["x"],"a.ics",{type:"text/calendar"})]})); } catch(e){ return false; } })();
+  if (puedeCompartir) $("cOk").textContent = "Abrir en el calendario";
+  $("cCancel").onclick = cerrar;
+  $("cOk").onclick = async ()=>{
+    const ps = state.personas.filter(p=>sel.has(p.id));
+    if (!ps.length) return $("cErr").textContent = "Elige al menos una persona.";
+    const {texto, n} = preparar();
+    if (!n) return $("cErr").textContent = "No hay actividades con esas opciones.";
+    ls.set("agenda-cal", {aviso, fuera:[...fuera], hasta:$("cHasta").value});
+    const nombre = "agenda-" + ps.map(p=>p.nombre).join("-").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9-]+/gi,"").toLowerCase() + ".ics";
+    const archivo = new File([texto], nombre, {type:"text/calendar"});
+    if (puedeCompartir){
+      try { await navigator.share({files:[archivo], title:"Agenda"}); cerrar(); estado("Listo ✓"); return; }
+      catch(e){ if (e && e.name === "AbortError") return; }
+    }
+    const url = URL.createObjectURL(archivo);
+    const a = document.createElement("a"); a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 5000);
+    cerrar(); estado("Calendario descargado ✓");
+  };
+}
+
 /* ---------- Menú ---------- */
 function abrirMenu(){
   const p = persona();
   if (!editor){
     abrir(`<h3>Agenda semanal</h3><div class="menu">
       <button class="btn" id="mPin">🔒 Entrar en modo edición</button>
+      <button class="btn" id="mCal">📅 Añadir al calendario</button>
       <button class="btn" id="mCerrar" style="text-align:center">Cerrar</button></div>`);
-    $("mPin").onclick = abrirPIN; $("mCerrar").onclick = cerrar; return;
+    $("mPin").onclick = abrirPIN; $("mCerrar").onclick = cerrar; $("mCal").onclick = abrirCalendario; return;
   }
   abrir(`
     <h3>${esc(p?.nombre || "Agenda")}</h3>
     <div class="menu">
+      <button class="btn" id="mCal">📅 Añadir al calendario</button>
       <button class="btn" id="mTipos">🏷️ Tipos de actividad</button>
       ${p ? `<button class="btn" id="mEdit">✏️ Cambiar nombre o curso</button>` : ""}
       <button class="btn" id="mNueva">➕ Nueva agenda</button>
@@ -939,6 +1084,7 @@ function abrirMenu(){
       <button class="btn" id="mCerrar" style="text-align:center">Cerrar</button>
     </div>`);
   $("mTipos").onclick = abrirTipos;
+  $("mCal").onclick = abrirCalendario;
   $("mNueva").onclick = ()=>abrirPersona(null);
   $("mImp").onclick = abrirImportar;
   if ($("mExp")) $("mExp").onclick = abrirExportar;
