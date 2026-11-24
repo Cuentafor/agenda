@@ -168,6 +168,21 @@
   .pd b{display:block;font-size:.85rem;margin-bottom:2px}
   .pa{font-size:.85rem;font-weight:700;padding:2px 0}
   .pa span{color:var(--muted);font-variant-numeric:tabular-nums;display:inline-block;min-width:92px}
+  .chip.ahora-btn{background:transparent;border-color:var(--accent);color:var(--accent)}
+  .ahora-lista{display:flex;flex-direction:column;gap:10px}
+  .ap{display:block;width:100%;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+  .ap:active{transform:scale(.99)}
+  .ap-nom{font-weight:800;font-size:1.05rem;display:flex;align-items:center;gap:6px;margin-bottom:8px}
+  .ap-nom span{font-size:.72rem;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:1px 8px}
+  .ap-nom i{margin-left:auto;font-style:normal;color:var(--muted)}
+  .ap-act{display:flex;align-items:center;gap:10px;border-left:4px solid;border-radius:10px;padding:8px 10px;margin-bottom:6px}
+  .ap-em{font-size:1.4rem}
+  .ap-txt{display:flex;flex-direction:column}
+  .ap-txt b{font-size:1rem}
+  .ap-txt small{color:var(--muted);font-weight:700;font-size:.8rem}
+  .ap-libre{color:var(--muted);font-weight:700;padding:6px 2px}
+  .ap-sig{color:var(--muted);font-weight:700;font-size:.85rem;margin-top:2px}
+  .ap-sig b{color:var(--ink)}
   .op.nuevo{color:var(--accent);border:1.5px dashed var(--accent);background:transparent}
 </style>
 </head>
@@ -263,6 +278,7 @@ let state = null, cargado = false, editor = false, user = null, db = null;
 const now = () => new Date();
 const hoyIdx = () => (now().getDay()+6)%7;
 const ui = Object.assign({persona:null, dia:hoyIdx()}, ls.get("agenda-ui") || {});
+ui.dia = hoyIdx(); // al abrir la app, siempre empieza en hoy
 const saveUI = () => ls.set("agenda-ui", ui);
 const persona = () => state && (state.personas.find(p=>p.id===ui.persona) || state.personas[0]);
 const tipo = id => state.tipos.find(t=>t.id===id) || {id:"", nombre:"Sin tipo", color:"#7b8090", emoji:""};
@@ -316,6 +332,12 @@ function render(){
   $("nombre").textContent = p ? p.nombre : "Agenda";
   $("curso").textContent = p?.curso || "";
   const cp = $("personas"); cp.innerHTML = "";
+  if (state.personas.length){
+    const ah = document.createElement("button");
+    ah.className = "chip ahora-btn"; ah.textContent = "🕒 Ahora";
+    ah.onclick = abrirAhora;
+    cp.appendChild(ah);
+  }
   state.personas.forEach(x=>{
     const b = document.createElement("button");
     b.className = "chip"; b.textContent = x.nombre || "Sin nombre";
@@ -850,6 +872,50 @@ function abrirExportar(){
   };
 }
 
+/* ---------- Panel «Ahora» ---------- */
+function estadoAhora(p){
+  const n = now(), m = n.getHours()*60 + n.getMinutes(), d = hoyIdx(), ay = (d+6)%7;
+  const actuales = [];
+  p.dias[ay].forEach(a=>{ if (nocturna(a) && m < min(a.fin)) actuales.push(a); });
+  p.dias[d].forEach(a=>{
+    if (nocturna(a)) { if (m >= min(a.ini)) actuales.push(a); return; }
+    const fin = a.fin ? min(a.fin) : min(a.ini)+30;
+    if (m >= min(a.ini) && m < fin) actuales.push(a);
+  });
+  const siguiente = p.dias[d].filter(a=>min(a.ini) > m && !actuales.includes(a)).sort((x,y)=>min(x.ini)-min(y.ini))[0] || null;
+  return { actuales, siguiente };
+}
+function abrirAhora(){
+  const n = now();
+  const hora = String(n.getHours()).padStart(2,"0") + ":" + String(n.getMinutes()).padStart(2,"0");
+  abrir(`
+    <h3>🕒 Ahora · ${DIAS[hoyIdx()][1].toLowerCase()} ${hora}</h3>
+    <div class="ahora-lista" id="aLista"></div>
+    <div class="pie"><button type="button" class="btn" id="aCerrar">Cerrar</button></div>`);
+  $("aCerrar").onclick = cerrar;
+  const cont = $("aLista");
+  if (!state.personas.length){ cont.innerHTML = `<div class="vacio">No hay agendas todavía</div>`; return; }
+  state.personas.forEach(p=>{
+    const { actuales, siguiente } = estadoAhora(p);
+    const box = document.createElement("button"); box.type = "button"; box.className = "ap";
+    const lineaAct = a => { const t = tipo(a.tipo), c = safeColor(t.color);
+      return `<div class="ap-act" style="border-color:${c};background:${c}1f"><span class="ap-em">${esc(a.emoji || t.emoji)}</span><span class="ap-txt"><b>${esc(a.nombre)}</b><small>${a.fin ? "hasta las " + esc(a.fin) + (nocturna(a) && min(a.ini) <= n.getHours()*60+n.getMinutes() ? " (mañana)" : "") : "desde las " + esc(a.ini)}</small></span></div>`; };
+    box.innerHTML = `
+      <div class="ap-nom">${esc(p.nombre)}${p.curso ? ` <span>${esc(p.curso)}</span>` : ""}<i>›</i></div>
+      ${actuales.length ? actuales.map(lineaAct).join("") : `<div class="ap-libre">Nada apuntado ahora</div>`}
+      <div class="ap-sig">${siguiente ? `Después: <b>${esc(siguiente.ini)}</b> ${esc(siguiente.emoji || tipo(siguiente.tipo).emoji)} ${esc(siguiente.nombre)}` : "Nada más hoy"}</div>`;
+    box.onclick = ()=>{ ui.persona = p.id; ui.dia = hoyIdx(); saveUI(); cerrar(); render(); irAhora(); };
+    cont.appendChild(box);
+  });
+}
+/* Baja sola hasta la actividad en curso (o la columna de hoy en el PC) */
+function irAhora(){
+  requestAnimationFrame(()=>{
+    const el = document.querySelector("li.ahora") || (modoSemana() ? document.querySelector(".col.hoy") : null);
+    if (el) el.scrollIntoView({block:"center", behavior:"smooth"});
+  });
+}
+
 /* ---------- Menú ---------- */
 function abrirMenu(){
   const p = persona();
@@ -932,7 +998,9 @@ if (!firebaseConfig || !firebaseConfig.databaseURL || /PEGA/.test(JSON.stringify
   onValue(ref(db, "agenda/data"), snap=>{
     const v = snap.val();
     try { state = normaliza(v ? JSON.parse(v) : clone(DEFAULT)); } catch(e){ state = normaliza(clone(DEFAULT)); }
+    const primera = !cargado;
     cargado = true; render();
+    if (primera && ui.dia === hoyIdx()) setTimeout(irAhora, 250);
   }, err=>{
     console.error(err);
     $("cuerpo").innerHTML = `<div class="aviso"><b>No se puede leer la agenda</b>Revisa que hayas pegado las reglas de la base de datos (ver <code>GUIA.md</code>).</div>`;
