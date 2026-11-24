@@ -1,0 +1,14 @@
+{
+  "rules": {
+    "agenda": {
+      ".read": true,
+      ".write": "auth != null && root.child('editores').child(auth.uid).val() === 'CAMBIA-ESTE-CODIGO'"
+    },
+    "editores": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid && (!newData.exists() || newData.val() === 'CAMBIA-ESTE-CODIGO')"
+      }
+    }
+  }
+}
