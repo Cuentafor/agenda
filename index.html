@@ -183,6 +183,22 @@
   .ap-libre{color:var(--muted);font-weight:700;padding:6px 2px}
   .ap-sig{color:var(--muted);font-weight:700;font-size:.85rem;margin-top:2px}
   .ap-sig b{color:var(--ink)}
+  .cal-cab{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px}
+  .mini-btn{border:1px solid var(--line);background:var(--bg);border-radius:99px;padding:5px 12px;font-weight:800;font-size:.78rem;margin-left:6px}
+  .cal-lista{display:flex;flex-direction:column;gap:5px;background:var(--bg);border-radius:14px;padding:8px}
+  .cal-per{font-weight:800;font-size:.95rem;padding:8px 4px 2px}
+  .cal-tipo{display:flex;align-items:center;gap:10px;border:none;background:transparent;padding:10px 6px 4px;font-weight:800;font-size:.85rem;text-align:left;width:100%}
+  .cal-tipo small{margin-left:auto;color:var(--muted)}
+  .cal-act{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-left:4px solid;border-radius:12px;padding:10px 12px;min-height:52px}
+  .ca-em{font-size:1.3rem}
+  .ca-txt{display:flex;flex-direction:column;min-width:0}
+  .ca-txt b{font-size:.95rem}
+  .ca-txt small{color:var(--muted);font-weight:700;font-size:.78rem}
+  .ck{width:24px;height:24px;border-radius:7px;border:2px solid var(--muted);flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:.85rem;color:#fff}
+  .ck.on{background:var(--accent);border-color:var(--accent)}
+  .ck.on::after{content:"✓";font-weight:800}
+  .ck.medio{border-color:var(--accent)}
+  .ck.medio::after{content:"–";color:var(--accent);font-weight:800}
   .op.nuevo{color:var(--accent);border:1.5px dashed var(--accent);background:transparent}
 </style>
 </head>
@@ -934,7 +950,7 @@ function plegar(linea){
   out.push(actual); return out.join("\r\n");
 }
 const fechaLocal = (d, hhmm) => `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${hhmm.replace(":","")}00`;
-function generarICS(personas, tiposFuera, aviso, hasta){
+function generarICS(personas, incluir, aviso, hasta){
   const L = ["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Agenda semanal//ES","CALSCALE:GREGORIAN","METHOD:PUBLISH",
     "X-WR-CALNAME:" + icsTxt("Agenda · " + personas.map(p=>p.nombre).join(", ")), "X-WR-TIMEZONE:Europe/Madrid", ...VTZ];
   const hoy = new Date(); hoy.setHours(0,0,0,0);
@@ -943,7 +959,7 @@ function generarICS(personas, tiposFuera, aviso, hasta){
   const until = `${ay}${pad(am)}${pad(ad)}T225959Z`;
   let n = 0;
   personas.forEach(p=>p.dias.forEach((lista, di)=>lista.forEach(a=>{
-    if (tiposFuera.has(a.tipo || "")) return;
+    if (!incluir(p, a)) return;
     const ini = new Date(hoy); ini.setDate(hoy.getDate() + ((di - hoyIdx() + 7) % 7));
     if (ini > new Date(ay, am-1, ad)) return;
     let finHHMM = a.fin, finD = new Date(ini);
@@ -973,7 +989,7 @@ function finDeCurso(){
 function abrirCalendario(){
   const pref = ls.get("agenda-cal") || {};
   const sel = new Set(persona() ? [persona().id] : []);
-  const fuera = new Set(pref.fuera || []);
+  const fuera = new Set(pref.fueraAct || []);  // actividades desmarcadas (clave persona|actividad)
   let aviso = pref.aviso ?? 10;
   abrir(`
     <h3>📅 Añadir al calendario</h3>
@@ -983,10 +999,11 @@ function abrirCalendario(){
     <label class="f">Avisar antes</label>
     <div class="opciones" id="cAv"></div>
     <div id="cOtro" style="margin-top:8px"></div>
-    <label class="f">Qué incluir</label>
-    <div class="opciones" id="cTip"></div>
     <label class="f" for="cHasta">Repetir cada semana hasta</label>
     <input type="date" id="cHasta">
+    <div class="cal-cab"><label class="f" style="margin:0">Qué actividades</label>
+      <span><button type="button" class="mini-btn" id="cTodas">Todas</button><button type="button" class="mini-btn" id="cNinguna">Ninguna</button></span></div>
+    <div class="cal-lista" id="cTip"></div>
     <div class="nota" id="cRes"></div>
     <div class="err" id="cErr"></div>
     <div class="pie">
@@ -1016,25 +1033,56 @@ function abrirCalendario(){
   });
   pintarAviso();
   const tw = $("cTip");
+  const claveAct = (p, a) => p.id + "|" + [a.ini, a.fin||"", a.nombre, a.tipo||""].join("|");
+  const DL = "LMXJVSD";
+  function grupos(){
+    // actividades únicas por persona y tipo, con sus días
+    const out = [];
+    state.personas.filter(p=>sel.has(p.id)).forEach(p=>{
+      const mapa = new Map();
+      p.dias.forEach((d,i)=>d.forEach(a=>{
+        const k = claveAct(p,a);
+        if (!mapa.has(k)) mapa.set(k, {k, a, dias:[]});
+        mapa.get(k).dias.push(i);
+      }));
+      const porTipo = new Map();
+      [...mapa.values()].sort((x,y)=>min(x.a.ini)-min(y.a.ini)).forEach(v=>{
+        const t = v.a.tipo || ""; if (!porTipo.has(t)) porTipo.set(t, []); porTipo.get(t).push(v);
+      });
+      out.push({p, porTipo});
+    });
+    return out;
+  }
   function pintarTipos(){
     tw.innerHTML = "";
-    const usados = new Set();
-    state.personas.filter(p=>sel.has(p.id)).forEach(p=>p.dias.forEach(d=>d.forEach(a=>usados.add(a.tipo||""))));
-    [...usados].forEach(id=>{
-      const t = tipo(id), c = safeColor(t.color);
-      const b = document.createElement("button"); b.type="button"; b.className="op";
-      b.textContent = (t.emoji ? t.emoji+" " : "") + t.nombre; b.style.color=c; b.style.background=c+"22";
-      b.setAttribute("aria-pressed", !fuera.has(id));
-      b.onclick = ()=>{ fuera.has(id) ? fuera.delete(id) : fuera.add(id); b.setAttribute("aria-pressed", !fuera.has(id)); resumen(); };
-      tw.appendChild(b);
+    const gs = grupos();
+    if (!gs.length){ tw.innerHTML = `<div class="nota" style="padding:10px">Elige al menos una persona</div>`; return; }
+    gs.forEach(({p, porTipo})=>{
+      if (gs.length > 1){ const h = document.createElement("div"); h.className = "cal-per"; h.textContent = p.nombre; tw.appendChild(h); }
+      porTipo.forEach((items, tid)=>{
+        const t = tipo(tid), c = safeColor(t.color);
+        const cab = document.createElement("button"); cab.type = "button"; cab.className = "cal-tipo";
+        const todosDentro = ()=>items.every(v=>!fuera.has(v.k));
+        const pintarCab = ()=>{ cab.innerHTML = `<span class="ck ${todosDentro()?"on":items.some(v=>!fuera.has(v.k))?"medio":""}"></span><span style="color:${c}">${esc(t.emoji)} ${esc(t.nombre)}</span><small>${items.length}</small>`; };
+        const filas = [];
+        cab.onclick = ()=>{ const marcar = !todosDentro(); items.forEach(v=> marcar ? fuera.delete(v.k) : fuera.add(v.k)); filas.forEach(f=>f()); pintarCab(); resumen(); };
+        pintarCab(); tw.appendChild(cab);
+        items.forEach(v=>{
+          const r = document.createElement("button"); r.type = "button"; r.className = "cal-act";
+          const pintar = ()=>{ r.innerHTML = `<span class="ck ${fuera.has(v.k)?"":"on"}"></span><span class="ca-em">${esc(v.a.emoji || t.emoji)}</span><span class="ca-txt"><b>${esc(v.a.nombre)}</b><small>${v.dias.map(i=>DL[i]).join(" ")} · ${esc(v.a.ini)}${v.a.fin?"–"+esc(v.a.fin):""}</small></span>`; r.style.borderLeftColor = c; };
+          r.onclick = ()=>{ fuera.has(v.k) ? fuera.delete(v.k) : fuera.add(v.k); pintar(); pintarCab(); resumen(); };
+          pintar(); filas.push(pintar); tw.appendChild(r);
+        });
+      });
     });
-    if (!usados.size) tw.innerHTML = `<span class="nota">Elige al menos una persona</span>`;
   }
+  $("cTodas").onclick = ()=>{ grupos().forEach(({porTipo})=>porTipo.forEach(it=>it.forEach(v=>fuera.delete(v.k)))); pintarTipos(); resumen(); };
+  $("cNinguna").onclick = ()=>{ grupos().forEach(({porTipo})=>porTipo.forEach(it=>it.forEach(v=>fuera.add(v.k)))); pintarTipos(); resumen(); };
   const preparar = ()=>{
     const ps = state.personas.filter(p=>sel.has(p.id));
-    return ps.length ? generarICS(ps, fuera, aviso, $("cHasta").value || finDeCurso()) : {texto:"", n:0};
+    return ps.length ? generarICS(ps, (p,a)=>!fuera.has(claveAct(p,a)), aviso, $("cHasta").value || finDeCurso()) : {texto:"", n:0};
   };
-  function resumen(){ const {n} = preparar(); $("cRes").textContent = n ? `${n} actividades semanales` : ""; }
+  function resumen(){ const {n} = preparar(); $("cRes").textContent = n ? `Se crearán ${n} eventos semanales` : "No hay ninguna actividad marcada"; }
   $("cHasta").onchange = resumen;
   pintarTipos(); resumen();
   const puedeCompartir = (()=>{ try { return !!(navigator.canShare && navigator.canShare({files:[new File(["x"],"a.ics",{type:"text/calendar"})]})); } catch(e){ return false; } })();
@@ -1044,8 +1092,8 @@ function abrirCalendario(){
     const ps = state.personas.filter(p=>sel.has(p.id));
     if (!ps.length) return $("cErr").textContent = "Elige al menos una persona.";
     const {texto, n} = preparar();
-    if (!n) return $("cErr").textContent = "No hay actividades con esas opciones.";
-    ls.set("agenda-cal", {aviso, fuera:[...fuera], hasta:$("cHasta").value});
+    if (!n) return $("cErr").textContent = "Marca al menos una actividad.";
+    ls.set("agenda-cal", {aviso, fueraAct:[...fuera], hasta:$("cHasta").value});
     const nombre = "agenda-" + ps.map(p=>p.nombre).join("-").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9-]+/gi,"").toLowerCase() + ".ics";
     const archivo = new File([texto], nombre, {type:"text/calendar"});
     if (puedeCompartir){
