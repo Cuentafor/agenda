@@ -163,6 +163,11 @@
     li.mini.ahora::after{right:8px;font-size:.55rem}
     .libre-dia{color:var(--muted);text-align:center;padding:16px 0;font-weight:800}
   }
+  textarea{width:100%;font:600 .85rem/1.4 ui-monospace,Menlo,monospace;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 12px;resize:vertical}
+  .previa{display:flex;flex-direction:column;gap:8px;background:var(--bg);border-radius:14px;padding:12px;max-height:38vh;overflow:auto}
+  .pd b{display:block;font-size:.85rem;margin-bottom:2px}
+  .pa{font-size:.85rem;font-weight:700;padding:2px 0}
+  .pa span{color:var(--muted);font-variant-numeric:tabular-nums;display:inline-block;min-width:92px}
   .op.nuevo{color:var(--accent);border:1.5px dashed var(--accent);background:transparent}
 </style>
 </head>
@@ -689,6 +694,162 @@ function abrirPersona(pid){
   setTimeout(()=>$("pNombre")?.focus(), 50);
 }
 
+/* ---------- Importar / exportar horario ---------- */
+const LETRAS = "LMXJVSD";
+function leerCodigo(texto){
+  const i = texto.indexOf("{"), j = texto.lastIndexOf("}");
+  if (i < 0 || j < i) throw new Error("No encuentro el código. Pega el texto completo, empezando por { y terminando por }.");
+  let o;
+  try { o = JSON.parse(texto.slice(i, j+1)); } catch(e){ throw new Error("El código está incompleto o dañado. Cópialo otra vez entero."); }
+  const acts = Array.isArray(o.actividades) ? o.actividades : [];
+  if (!acts.length) throw new Error("El código no contiene actividades.");
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const limpias = [];
+  acts.forEach((a,k)=>{
+    const ini = String(a.ini||"").trim(), fin = String(a.fin||"").trim();
+    const dias = [...new Set([...String(a.dias||"").toUpperCase()].map(c=>LETRAS.indexOf(c)).filter(x=>x>=0))];
+    if (!a.nombre || !hhmm.test(ini) || (fin && !hhmm.test(fin)) || !dias.length || fin===ini)
+      throw new Error(`Revisa la actividad ${k+1} («${String(a.nombre||"sin nombre").slice(0,30)}»): falta el nombre, la hora o el día.`);
+    limpias.push({nombre:String(a.nombre).slice(0,60), ini, fin, tipo:String(a.tipo||"").slice(0,24), emoji:String(a.emoji||"").slice(0,8), dias});
+  });
+  const tipos = (Array.isArray(o.tipos) ? o.tipos : []).filter(t=>t && t.nombre).map(t=>({nombre:String(t.nombre).slice(0,24), color:safeColor(t.color), emoji:String(t.emoji||"").slice(0,8)}));
+  return { nombre:String(o.nombre||"").slice(0,30), curso:String(o.curso||"").slice(0,15), tipos, acts:limpias };
+}
+
+function abrirImportar(){
+  abrir(`
+    <h3>📥 Importar horario</h3>
+    <p class="sub">Pega el código que te ha preparado Claude.</p>
+    <textarea id="iTxt" rows="7" placeholder='{"agenda":1, ...}' spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+    <div class="err" id="iErr"></div>
+    <div class="pie">
+      <button type="button" class="btn" id="iCancel">Cancelar</button>
+      <button type="button" class="btn pri" id="iSig">Revisar</button>
+    </div>`);
+  $("iCancel").onclick = cerrar;
+  $("iSig").onclick = ()=>{
+    try { previaImportar(leerCodigo($("iTxt").value)); }
+    catch(e){ $("iErr").textContent = e.message; }
+  };
+  setTimeout(()=>$("iTxt")?.focus(), 50);
+}
+
+function previaImportar(imp){
+  const existe = n => state.personas.find(p=>p.nombre.trim().toLowerCase()===n.trim().toLowerCase());
+  // destino: "nueva" o id de persona
+  let destino = imp.nombre && !existe(imp.nombre) ? "nueva" : (existe(imp.nombre)?.id || persona()?.id || "nueva");
+  let modo = "anadir";
+  const tipoPorNombre = n => state.tipos.find(t=>t.nombre.trim().toLowerCase()===n.trim().toLowerCase());
+  const nuevosTipos = [...new Set(imp.acts.map(a=>a.tipo).filter(n=>n && !tipoPorNombre(n)))];
+  const porDia = DIAS.map((_,i)=>imp.acts.filter(a=>a.dias.includes(i)).sort((x,y)=>min(x.ini)-min(y.ini)));
+  const total = porDia.reduce((s,d)=>s+d.length,0);
+  const pintar = ()=>{
+    abrir(`
+      <h3>Revisa antes de importar</h3>
+      <label class="f">¿A quién se lo añado?</label>
+      <div class="opciones" id="iDest"></div>
+      <div id="iNueva"></div>
+      <div id="iModo"></div>
+      ${nuevosTipos.length ? `<label class="f">Tipos nuevos que se crearán</label><div class="opciones">${nuevosTipos.map(n=>{
+          const t = imp.tipos.find(x=>x.nombre.toLowerCase()===n.toLowerCase()) || {color:"#7b8090", emoji:""};
+          return `<span class="op" style="color:${t.color};background:${t.color}22">${esc(t.emoji)} ${esc(n)}</span>`; }).join("")}</div>` : ""}
+      <label class="f">${total} ${total===1?"actividad":"actividades"}</label>
+      <div class="previa">${porDia.map((d,i)=> d.length ? `<div class="pd"><b>${DIAS[i][1]}</b>${d.map(a=>`<div class="pa"><span>${esc(a.ini)}${a.fin?"–"+esc(a.fin):""}</span> ${esc(a.emoji)} ${esc(a.nombre)}</div>`).join("")}</div>` : "").join("")}</div>
+      <div class="err" id="iErr"></div>
+      <div class="pie">
+        <button type="button" class="btn" id="iVolver">Volver</button>
+        <button type="button" class="btn pri" id="iOk">Importar</button>
+      </div>`);
+    const dw = $("iDest");
+    const opt = (val, txt)=>{ const b = document.createElement("button"); b.type="button"; b.className="chip"; b.textContent = txt; b.setAttribute("aria-pressed", destino===val); b.onclick = ()=>{ destino = val; pintar(); }; dw.appendChild(b); };
+    opt("nueva", "＋ Persona nueva");
+    state.personas.forEach(p=>opt(p.id, p.nombre));
+    if (destino === "nueva"){
+      $("iNueva").innerHTML = `<label class="f" for="iNom">Nombre</label><input type="text" id="iNom" maxlength="30"><label class="f" for="iCur">Curso (opcional)</label><input type="text" id="iCur" maxlength="15">`;
+      $("iNom").value = imp.nombre; $("iCur").value = imp.curso;
+      $("iNom").oninput = ()=>{ imp.nombre = $("iNom").value; }; $("iCur").oninput = ()=>{ imp.curso = $("iCur").value; };
+    } else {
+      const p = state.personas.find(x=>x.id===destino);
+      const tiene = p ? p.dias.reduce((s,d)=>s+d.length,0) : 0;
+      if (tiene){
+        $("iModo").innerHTML = `<label class="f">${esc(p.nombre)} ya tiene ${tiene} actividades</label><div class="opciones" id="iModoOp"></div>`;
+        const mw = $("iModoOp");
+        [["anadir","Añadir a lo que tiene"],["reemplazar","Reemplazar su horario"]].forEach(([v,t])=>{
+          const b = document.createElement("button"); b.type="button"; b.className="op"; b.textContent=t; b.setAttribute("aria-pressed", modo===v);
+          b.onclick = ()=>{ modo = v; [...mw.children].forEach(x=>x.setAttribute("aria-pressed", x===b)); };
+          mw.appendChild(b);
+        });
+      }
+    }
+    $("iVolver").onclick = abrirImportar;
+    $("iOk").onclick = ()=>{
+      if (destino==="nueva" && !imp.nombre.trim()){ $("iErr").textContent = "Escribe el nombre de la persona."; return; }
+      const pid = destino==="nueva" ? "p"+uid() : destino;
+      const sufijo = uid();
+      const nombreNueva = imp.nombre.trim(), cursoNueva = imp.curso.trim(), m = modo, dest = destino;
+      cambiar(s=>{
+        // tipos que falten
+        const buscar = n => s.tipos.find(t=>t.nombre.trim().toLowerCase()===n.trim().toLowerCase());
+        imp.acts.forEach(a=>{
+          if (!a.tipo || buscar(a.tipo)) return;
+          const def = imp.tipos.find(x=>x.nombre.toLowerCase()===a.tipo.toLowerCase());
+          s.tipos.push({id:"t"+uid(), nombre:a.tipo, color:def?.color || COLORES[s.tipos.length % COLORES.length], emoji:def?.emoji || a.emoji || "⭐"});
+        });
+        let p = s.personas.find(x=>x.id===pid);
+        if (!p){
+          if (dest !== "nueva") return;
+          p = {id:pid, nombre:nombreNueva, curso:cursoNueva, dias:[[],[],[],[],[],[],[]]}; s.personas.push(p);
+        }
+        if (m==="reemplazar") p.dias = [[],[],[],[],[],[],[]];
+        imp.acts.forEach((a,k)=>a.dias.forEach(d=>{
+          const id = `i${sufijo}${k}_${d}`;
+          if (p.dias[d].some(x=>x.id===id)) return;
+          p.dias[d].push({id, ini:a.ini, fin:a.fin, nombre:a.nombre, tipo:buscar(a.tipo)?.id || "", emoji:a.emoji || buscar(a.tipo)?.emoji || ""});
+        }));
+        p.dias.forEach(l=>l.sort((x,y)=>min(x.ini)-min(y.ini)));
+      });
+      ui.persona = pid; saveUI(); render(); cerrar();
+      estado(`Importadas ${total} actividades ✓`);
+    };
+  };
+  pintar();
+}
+
+function codigoDe(p){
+  const usados = new Set();
+  const acts = [];
+  // agrupar actividades idénticas en varios días
+  const clave = a => [a.ini,a.fin||"",a.nombre,a.tipo,a.emoji||""].join("|");
+  const mapa = new Map();
+  p.dias.forEach((d,i)=>d.forEach(a=>{
+    const k = clave(a);
+    if (!mapa.has(k)){ const t = tipo(a.tipo); usados.add(a.tipo); mapa.set(k, {dias:"", ini:a.ini, fin:a.fin||"", nombre:a.nombre, tipo:a.tipo?t.nombre:"", emoji:a.emoji||""}); }
+    mapa.get(k).dias += LETRAS[i];
+  }));
+  mapa.forEach(v=>acts.push(v));
+  const tipos = state.tipos.filter(t=>usados.has(t.id)).map(t=>({nombre:t.nombre, color:t.color, emoji:t.emoji}));
+  return JSON.stringify({agenda:1, nombre:p.nombre, curso:p.curso||"", tipos, actividades:acts});
+}
+function abrirExportar(){
+  const p = persona(); if(!p) return;
+  const cod = codigoDe(p);
+  abrir(`
+    <h3>📤 Código del horario de ${esc(p.nombre)}</h3>
+    <p class="sub">Cópialo para pedirle cambios a Claude o pasarlo a otra agenda.</p>
+    <textarea id="eTxt" rows="7" readonly spellcheck="false"></textarea>
+    <div class="err" id="eMsg" style="color:var(--ok)"></div>
+    <div class="pie">
+      <button type="button" class="btn" id="eCerrar">Cerrar</button>
+      <button type="button" class="btn pri" id="eCopiar">Copiar</button>
+    </div>`);
+  $("eTxt").value = cod;
+  $("eCerrar").onclick = cerrar;
+  $("eCopiar").onclick = async ()=>{
+    try { await navigator.clipboard.writeText(cod); $("eMsg").textContent = "Copiado ✓"; }
+    catch(e){ $("eTxt").focus(); $("eTxt").select(); $("eMsg").textContent = "Selecciona el texto y cópialo a mano."; }
+  };
+}
+
 /* ---------- Menú ---------- */
 function abrirMenu(){
   const p = persona();
@@ -704,6 +865,8 @@ function abrirMenu(){
       <button class="btn" id="mTipos">🏷️ Tipos de actividad</button>
       ${p ? `<button class="btn" id="mEdit">✏️ Cambiar nombre o curso</button>` : ""}
       <button class="btn" id="mNueva">➕ Nueva agenda</button>
+      <button class="btn" id="mImp">📥 Importar horario</button>
+      ${p ? `<button class="btn" id="mExp">📤 Copiar el horario como código</button>` : ""}
       ${p ? `<button class="btn peligro" id="mDia">🧹 Vaciar el ${esc(DIAS[ui.dia][1].toLowerCase())}</button>` : ""}
       ${p ? `<button class="btn peligro" id="mDel">🗑️ Borrar la agenda de ${esc(p.nombre)}</button>` : ""}
       <button class="btn" id="mSalir">🔒 Salir del modo edición en este móvil</button>
@@ -711,6 +874,8 @@ function abrirMenu(){
     </div>`);
   $("mTipos").onclick = abrirTipos;
   $("mNueva").onclick = ()=>abrirPersona(null);
+  $("mImp").onclick = abrirImportar;
+  if ($("mExp")) $("mExp").onclick = abrirExportar;
   $("mCerrar").onclick = cerrar;
   $("mSalir").onclick = async ()=>{ try{ await remove(ref(db,"editores/"+user.uid)); }catch(e){} editor=false; render(); cerrar(); estado("Modo lectura"); };
   if (p){
