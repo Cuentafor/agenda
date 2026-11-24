@@ -1,5 +1,5 @@
 // Permite instalar la app y abrirla aunque falle la conexión.
-const CACHE = "agenda-v1";
+const CACHE = "agenda-v3";
 const ARCHIVOS = ["./", "./index.html", "./config.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
