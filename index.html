@@ -199,6 +199,49 @@
   .ck.on::after{content:"✓";font-weight:800}
   .ck.medio{border-color:var(--accent)}
   .ck.medio::after{content:"–";color:var(--accent);font-weight:800}
+  .semnav{display:flex;align-items:center;gap:8px;margin:0 0 8px}
+  .semnav button{border:1px solid var(--line);background:var(--card);border-radius:12px;min-width:42px;height:40px;font-size:1.3rem;font-weight:800}
+  .semnav .sn-hoy{font-size:.85rem;padding:0 12px;color:var(--accent);border-color:var(--accent)}
+  .sn-txt{flex:1;text-align:center;display:flex;flex-direction:column;line-height:1.15}
+  .sn-txt b{font-size:1rem}
+  .sn-txt small{font-size:.72rem;color:var(--muted);font-weight:700}
+  .col .dn small{color:var(--muted);font-weight:700}
+  .aviso-fechas{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.85rem;font-weight:700;margin-top:14px;line-height:1.4}
+  .vistas{display:grid;grid-template-columns:repeat(3,1fr);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px;margin:2px 0 10px}
+  .vistas button{border:none;background:transparent;border-radius:9px;padding:8px 0;font-weight:800;font-size:.9rem;color:var(--muted)}
+  .vistas button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+  body.vista-mes .fab, body.vista-ano .fab{display:none !important}
+  body.vista-mes .tabs, body.vista-ano .tabs{display:none}
+  .mes{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+  .mes-h{text-align:center;font-size:.72rem;font-weight:800;color:var(--muted);padding:2px 0}
+  .mes-c{position:relative;aspect-ratio:1/1.05;border:1px solid var(--line);background:var(--card);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:5px 2px;gap:4px;min-width:0}
+  .mes-c.vacia{border:none;background:transparent}
+  .mes-c.finde{background:color-mix(in srgb, var(--card) 60%, var(--bg))}
+  .mes-c .num{font-weight:800;font-size:.95rem}
+  .mes-c.hoy{border:2px solid var(--accent)}
+  .mes-c.hoy .num{color:var(--accent)}
+  .mes-c .dots{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;max-width:100%}
+  .mes-c .dots i{width:7px;height:7px;border-radius:50%;display:block}
+  .mes-c .dots i.mas{background:none;font-style:normal;font-size:.55rem;line-height:7px;color:var(--muted)}
+  .mes-c .cnt{position:absolute;bottom:3px;right:5px;font-size:.55rem;color:var(--muted);font-weight:800}
+  .leyenda{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:12px;font-size:.8rem;font-weight:700;color:var(--muted)}
+  .leyenda span{display:inline-flex;align-items:center;gap:5px}
+  .leyenda i{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .ano{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .ano-m{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px}
+  .ano-t{border:none;background:none;font-weight:800;font-size:.9rem;padding:2px 2px 6px;width:100%;text-align:left}
+  .ano-g{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+  .ano-h{text-align:center;font-size:.55rem;font-weight:800;color:var(--muted)}
+  .ano-d{border:none;background:transparent;border-radius:5px;font-size:.62rem;font-weight:700;aspect-ratio:1/1;padding:0;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ano-d.finde{color:var(--muted)}
+  .ano-d.hoy{outline:2px solid var(--accent);outline-offset:-1px}
+  @media (min-width: 640px){ .ano{grid-template-columns:repeat(3,minmax(0,1fr))} .mes-c{aspect-ratio:1/.8} }
+  @media (min-width: 1000px){
+    .ano{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .vistas{max-width:360px}
+    .mes{max-width:900px} .mes-c{aspect-ratio:1/.62;align-items:flex-start;padding:6px 8px} .mes-c .dots{justify-content:flex-start} .mes-c .dots i{width:9px;height:9px}
+    .ano-d{font-size:.7rem}
+  }
   .op.nuevo{color:var(--accent);border:1.5px dashed var(--accent);background:transparent}
 </style>
 </head>
@@ -211,6 +254,8 @@
   <button class="icon-btn" id="menuBtn" aria-label="Opciones">⋯</button>
 </div>
 <div class="personas" id="personas"></div>
+<div class="vistas" id="vistas"></div>
+<div class="semnav" id="semnav"></div>
 <nav class="tabs" role="tablist" id="tabs"></nav>
 <h2 id="titulo"></h2>
 <div id="cuerpo"><div class="vacio"><div>⏳</div>Cargando…</div></div>
@@ -298,6 +343,16 @@ ui.dia = hoyIdx(); // al abrir la app, siempre empieza en hoy
 const saveUI = () => ls.set("agenda-ui", ui);
 const persona = () => state && (state.personas.find(p=>p.id===ui.persona) || state.personas[0]);
 const tipo = id => state.tipos.find(t=>t.id===id) || {id:"", nombre:"Sin tipo", color:"#7b8090", emoji:""};
+/* Fechas: semana 0 = la actual; las actividades con «fechas» solo ocurren esos días */
+let semana = 0;
+const pad2 = n => String(n).padStart(2,"0");
+const iso = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+function lunesDe(off){ const d = now(); d.setHours(0,0,0,0); d.setDate(d.getDate() - hoyIdx() + 7*off); return d; }
+function fechaDia(i, off){ const d = lunesDe(off ?? semana); d.setDate(d.getDate()+i); return d; }
+const ocurre = (a, fecha) => !Array.isArray(a.fechas) || a.fechas.includes(iso(fecha));
+const esHoyVista = i => semana===0 && i===hoyIdx();
+const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+const fmtCorta = d => `${d.getDate()} ${MESES[d.getMonth()]}`;
 
 /* ================= Pintar ================= */
 const mqSemana = window.matchMedia("(min-width: 1000px)");
@@ -306,7 +361,7 @@ mqSemana.addEventListener ? mqSemana.addEventListener("change", ()=>render()) : 
 
 function crearTarjeta(a, dia, desdeAyer, compacta){
   const n = now(), nowMin = n.getHours()*60 + n.getMinutes();
-  const esHoy = dia === hoyIdx() || (desdeAyer && (dia+1)%7 === hoyIdx());
+  const esHoy = esHoyVista(dia) || (desdeAyer && semana===0 && (dia+1)%7 === hoyIdx());
   const t = tipo(a.tipo), col = safeColor(t.color);
   const li = document.createElement("li"); li.className = "card" + (compacta ? " mini" : "");
   let activa;
@@ -321,7 +376,7 @@ function crearTarjeta(a, dia, desdeAyer, compacta){
       <div class="act">
         <div class="hm">${desdeAyer ? "<span class='ayer'>desde ayer · </span>" : ""}${esc(a.ini)}${a.fin ? ` – ${finTxt}` : ""}</div>
         <div class="nombre">${esc(a.nombre)}</div>
-        <span class="tag" style="color:${col};background:${col}22">${esc(t.nombre)}</span>
+        <span class="tag" style="color:${col};background:${col}22">${esc(t.nombre)}${a.fechas?" · 📅":""}</span>
       </div>
       <div class="emoji" aria-hidden="true">${esc(a.emoji || t.emoji)}</div>`;
   } else {
@@ -329,7 +384,7 @@ function crearTarjeta(a, dia, desdeAyer, compacta){
       <div class="bar" style="background:${col}"></div>
       <div class="hora">${desdeAyer ? "<span class='ayer'>desde ayer</span>" : ""}${esc(a.ini)}${a.fin?`<span>${finTxt}</span>`:""}</div>
       <div class="act"><div class="nombre">${esc(a.nombre)}</div>
-        <span class="tag" style="color:${col};background:${col}22">${esc(t.nombre)}</span></div>
+        <span class="tag" style="color:${col};background:${col}22">${esc(t.nombre)}${a.fechas?" · 📅":""}</span></div>
       <div class="emoji" aria-hidden="true">${esc(a.emoji || t.emoji)}</div>`;
   }
   li.title = editor ? "Tocar para editar" : "";
@@ -368,18 +423,25 @@ function render(){
     cp.appendChild(add);
   }
   const cuerpo = $("cuerpo");
-  if (!p){ $("tabs").innerHTML=""; $("titulo").textContent=""; cuerpo.innerHTML = `<div class="vacio"><div>👤</div>No hay agendas todavía${editor?"<br>Toca «＋ Persona»":""}</div>`; return; }
+  if (!p){ $("vistas").innerHTML=""; $("semnav").innerHTML=""; $("tabs").innerHTML=""; $("titulo").textContent=""; cuerpo.innerHTML = `<div class="vacio"><div>👤</div>No hay agendas todavía${editor?"<br>Toca «＋ Persona»":""}</div>`; return; }
   const nowMin = now().getHours()*60 + now().getMinutes();
-  const ayerDe = d => p.dias[(d+6)%7].filter(a=>nocturna(a) && nowMin < min(a.fin));
+  const ayerDe = d => { const f = fechaDia(d); f.setDate(f.getDate()-1); return p.dias[(d+6)%7].filter(a=>nocturna(a) && nowMin < min(a.fin) && ocurre(a, f)); };
+  const delDia = i => p.dias[i].filter(a=>ocurre(a, fechaDia(i)));
+  pintarVistas();
+  document.body.classList.toggle("vista-mes", vista==="mes");
+  document.body.classList.toggle("vista-ano", vista==="ano");
+  if (vista==="mes"){ $("tabs").innerHTML = ""; renderMes(p); return; }
+  if (vista==="ano"){ $("tabs").innerHTML = ""; renderAno(p); return; }
+  pintarSemNav();
 
   /* ---- PC: semana completa ---- */
   if (modoSemana()){
     $("tabs").innerHTML = ""; $("titulo").textContent = "Semana";
     const g = document.createElement("div"); g.className = "semana";
     DIAS.forEach(([c,nom],i)=>{
-      const col = document.createElement("section"); col.className = "col" + (i===hoyIdx() ? " hoy" : "");
+      const col = document.createElement("section"); col.className = "col" + (esHoyVista(i) ? " hoy" : "");
       const h = document.createElement("header");
-      h.innerHTML = `<span class="dn">${nom}</span>${i===hoyIdx()?`<span class="hoyb">hoy</span>`:""}`;
+      h.innerHTML = `<span class="dn">${nom} <small>${fechaDia(i).getDate()}</small></span>${esHoyVista(i)?`<span class="hoyb">hoy</span>`:""}`;
       if (editor){
         const add = document.createElement("button"); add.className = "add-dia"; add.textContent = "＋";
         add.title = `Añadir actividad el ${nom.toLowerCase()}`; add.setAttribute("aria-label", add.title);
@@ -388,8 +450,8 @@ function render(){
       }
       col.appendChild(h);
       const ol = document.createElement("ol");
-      if (i===hoyIdx()) ayerDe(i).forEach(a=>ol.appendChild(crearTarjeta(a,(i+6)%7,true,true)));
-      p.dias[i].forEach(a=>ol.appendChild(crearTarjeta(a,i,false,true)));
+      if (esHoyVista(i)) ayerDe(i).forEach(a=>ol.appendChild(crearTarjeta(a,(i+6)%7,true,true)));
+      delDia(i).forEach(a=>ol.appendChild(crearTarjeta(a,i,false,true)));
       if (!ol.children.length) ol.innerHTML = `<li class="libre-dia">—</li>`;
       col.appendChild(ol);
       g.appendChild(col);
@@ -402,16 +464,16 @@ function render(){
   const tabs = $("tabs"); tabs.innerHTML = "";
   DIAS.forEach(([c,n],i)=>{
     const b = document.createElement("button");
-    b.className = "tab" + (i===hoyIdx() ? " hoy" : "");
+    b.className = "tab" + (esHoyVista(i) ? " hoy" : "");
     b.setAttribute("role","tab"); b.setAttribute("aria-selected", i===ui.dia);
-    const cnt = p.dias[i].length;
-    b.innerHTML = `${c}<small>${i===hoyIdx() ? "hoy" : n.slice(0,3)}</small>${cnt?`<span class="n">${cnt}</span>`:""}`;
+    const cnt = delDia(i).length;
+    b.innerHTML = `${c}<small>${esHoyVista(i) ? "hoy" : fechaDia(i).getDate()}</small>${cnt?`<span class="n">${cnt}</span>`:""}`;
     b.onclick = ()=>{ ui.dia = i; saveUI(); render(); };
     tabs.appendChild(b);
   });
-  $("titulo").textContent = DIAS[ui.dia][1];
-  const acts = p.dias[ui.dia];
-  const ayer = ui.dia===hoyIdx() ? ayerDe(ui.dia) : [];
+  $("titulo").textContent = `${DIAS[ui.dia][1]} ${fmtCorta(fechaDia(ui.dia))}`;
+  const acts = delDia(ui.dia);
+  const ayer = esHoyVista(ui.dia) ? ayerDe(ui.dia) : [];
   if (!acts.length && !ayer.length){ cuerpo.innerHTML = `<div class="vacio"><div>🌤️</div>Nada este día${editor?"<br>Toca «Añadir actividad»":""}</div>`; return; }
   const ol = document.createElement("ol"); ol.className = "dia";
   ayer.forEach(a=>ol.appendChild(crearTarjeta(a,(ui.dia+6)%7,true,false)));
@@ -420,12 +482,142 @@ function render(){
 }
 setInterval(render, 60000);
 
+
+/* ================= Vistas: día/semana · mes · año ================= */
+let vista = "dia";                // "dia" | "mes" | "ano"
+let refMes = null;                // primer día del mes mostrado
+let refAno = null;                // año mostrado
+const MESES_L = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const idxDe = f => (f.getDay()+6)%7;
+const actsEn = (p, f) => p.dias[idxDe(f)].filter(a=>ocurre(a, f));
+const mismoDia = (a, b) => a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+function irAFecha(f){
+  const l = new Date(f); l.setHours(0,0,0,0); l.setDate(l.getDate() - idxDe(l));
+  semana = Math.round((l - lunesDe(0)) / (7*864e5));
+  ui.dia = idxDe(f); vista = "dia"; saveUI(); render();
+  if (semana===0 && ui.dia===hoyIdx()) irAhora(); else window.scrollTo({top:0, behavior:"smooth"});
+}
+function pintarVistas(){
+  const v = $("vistas"); if (!v) return;
+  const ops = [["dia", modoSemana() ? "Semana" : "Día"], ["mes","Mes"], ["ano","Año"]];
+  v.innerHTML = "";
+  ops.forEach(([k,t])=>{
+    const b = document.createElement("button"); b.type="button"; b.textContent = t; b.setAttribute("aria-pressed", vista===k);
+    b.onclick = ()=>{
+      if (k==="mes" && vista!=="mes"){ const f = fechaDia(ui.dia); refMes = new Date(f.getFullYear(), f.getMonth(), 1); }
+      if (k==="ano" && vista!=="ano"){ refAno = (refMes || fechaDia(ui.dia)).getFullYear(); }
+      vista = k; render(); window.scrollTo({top:0});
+    };
+    v.appendChild(b);
+  });
+}
+function navSimple(texto, sub, ant, sig, hoyFn){
+  const nav = $("semnav");
+  nav.innerHTML = `<button type="button" id="semAnt" aria-label="Anterior">‹</button>
+    <div class="sn-txt"><b>${texto}</b><small>${sub||""}</small></div>
+    ${hoyFn ? `<button type="button" id="semHoy" class="sn-hoy">Hoy</button>` : ""}
+    <button type="button" id="semSig" aria-label="Siguiente">›</button>`;
+  $("semAnt").onclick = ant; $("semSig").onclick = sig;
+  if (hoyFn) $("semHoy").onclick = hoyFn;
+}
+function renderMes(p){
+  const hoy = now();
+  if (!refMes) refMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  const esteMes = refMes.getFullYear()===hoy.getFullYear() && refMes.getMonth()===hoy.getMonth();
+  navSimple(`${MESES_L[refMes.getMonth()]} ${refMes.getFullYear()}`, esteMes ? "Este mes" : "",
+    ()=>{ refMes = new Date(refMes.getFullYear(), refMes.getMonth()-1, 1); render(); },
+    ()=>{ refMes = new Date(refMes.getFullYear(), refMes.getMonth()+1, 1); render(); },
+    esteMes ? null : ()=>{ refMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1); render(); });
+  $("titulo").textContent = "";
+  const g = document.createElement("div"); g.className = "mes";
+  DIAS.forEach(([c])=>{ const h = document.createElement("div"); h.className = "mes-h"; h.textContent = c; g.appendChild(h); });
+  const vacios = idxDe(refMes);
+  for (let i=0;i<vacios;i++){ const e = document.createElement("div"); e.className = "mes-c vacia"; g.appendChild(e); }
+  const usados = new Map();
+  const nDias = new Date(refMes.getFullYear(), refMes.getMonth()+1, 0).getDate();
+  for (let d=1; d<=nDias; d++){
+    const f = new Date(refMes.getFullYear(), refMes.getMonth(), d);
+    const acts = actsEn(p, f);
+    const cols = [];
+    acts.forEach(a=>{ const t = tipo(a.tipo); const c = safeColor(t.color); usados.set(t.id||"", t); if (!cols.includes(c)) cols.push(c); });
+    const b = document.createElement("button"); b.type = "button";
+    b.className = "mes-c" + (mismoDia(f, hoy) ? " hoy" : "") + (idxDe(f)>4 ? " finde" : "");
+    b.innerHTML = `<span class="num">${d}</span><span class="dots">${cols.slice(0,4).map(c=>`<i style="background:${c}"></i>`).join("")}</span>${acts.length?`<span class="cnt">${acts.length}</span>`:""}`;
+    b.setAttribute("aria-label", `${d} de ${MESES_L[refMes.getMonth()].toLowerCase()}: ${acts.length} actividades`);
+    b.onclick = ()=>irAFecha(f);
+    g.appendChild(b);
+  }
+  const ley = document.createElement("div"); ley.className = "leyenda";
+  usados.forEach(t=>{ const c = safeColor(t.color); ley.innerHTML += `<span><i style="background:${c}"></i>${esc(t.emoji)} ${esc(t.nombre)}</span>`; });
+  const cuerpo = $("cuerpo"); cuerpo.innerHTML = ""; cuerpo.appendChild(g);
+  if (usados.size) cuerpo.appendChild(ley);
+  const nota = document.createElement("p"); nota.className = "nota"; nota.style.marginTop = "10px"; nota.textContent = "Toca un día para ver su detalle.";
+  cuerpo.appendChild(nota);
+}
+function renderAno(p){
+  const hoy = now();
+  if (!refAno) refAno = hoy.getFullYear();
+  // tipos con fechas concretas de esta persona
+  const conFechas = new Map();
+  p.dias.forEach(l=>l.forEach(a=>{ if (a.fechas){ const t = tipo(a.tipo); conFechas.set(t.id||"", t); } }));
+  let total = 0;
+  const cont = document.createElement("div"); cont.className = "ano";
+  for (let m=0; m<12; m++){
+    const box = document.createElement("div"); box.className = "ano-m";
+    const cab = document.createElement("button"); cab.type="button"; cab.className = "ano-t"; cab.textContent = MESES_L[m];
+    cab.onclick = ()=>{ refMes = new Date(refAno, m, 1); vista = "mes"; render(); window.scrollTo({top:0}); };
+    box.appendChild(cab);
+    const g = document.createElement("div"); g.className = "ano-g";
+    "LMXJVSD".split("").forEach(c=>{ const h = document.createElement("span"); h.className = "ano-h"; h.textContent = c; g.appendChild(h); });
+    const ini = new Date(refAno, m, 1);
+    for (let i=0;i<idxDe(ini);i++) g.appendChild(document.createElement("span"));
+    const nDias = new Date(refAno, m+1, 0).getDate();
+    for (let d=1; d<=nDias; d++){
+      const f = new Date(refAno, m, d);
+      const fe = p.dias[idxDe(f)].filter(a=>a.fechas && ocurre(a, f));
+      const s = document.createElement("button"); s.type = "button"; s.className = "ano-d" + (mismoDia(f,hoy) ? " hoy" : "") + (idxDe(f)>4 ? " finde" : "");
+      s.textContent = d;
+      if (fe.length){ const c = safeColor(tipo(fe[0].tipo).color); s.style.background = c; s.style.color = "#fff"; total++; }
+      s.onclick = ()=>irAFecha(f);
+      g.appendChild(s);
+    }
+    box.appendChild(g); cont.appendChild(box);
+  }
+  navSimple(String(refAno), total ? `${total} días con fechas concretas` : (refAno===hoy.getFullYear() ? "Este año" : ""),
+    ()=>{ refAno--; render(); }, ()=>{ refAno++; render(); },
+    refAno===hoy.getFullYear() ? null : ()=>{ refAno = hoy.getFullYear(); render(); });
+  $("titulo").textContent = "";
+  const cuerpo = $("cuerpo"); cuerpo.innerHTML = "";
+  if (!conFechas.size){
+    cuerpo.innerHTML = `<div class="vacio" style="margin-bottom:12px"><div>📅</div>${esc(p.nombre)} no tiene actividades con fechas concretas.<br><small>Aquí se ven, por ejemplo, los turnos de un calendario laboral importado.</small></div>`;
+  } else {
+    const ley = document.createElement("div"); ley.className = "leyenda";
+    conFechas.forEach(t=>{ const c = safeColor(t.color); ley.innerHTML += `<span><i style="background:${c}"></i>${esc(t.emoji)} ${esc(t.nombre)}</span>`; });
+    ley.style.margin = "0 0 12px"; cuerpo.appendChild(ley);
+  }
+  cuerpo.appendChild(cont);
+}
+
+function pintarSemNav(){
+  const nav = $("semnav"); if (!nav) return;
+  const l = lunesDe(semana), d = fechaDia(6);
+  const rango = l.getMonth()===d.getMonth() ? `${l.getDate()}–${d.getDate()} ${MESES[d.getMonth()]}` : `${fmtCorta(l)} – ${fmtCorta(d)}`;
+  const etiqueta = semana===0 ? "Esta semana" : semana===1 ? "Semana que viene" : semana===-1 ? "Semana pasada" : (l.getFullYear()!==now().getFullYear() ? l.getFullYear()+"" : "");
+  nav.innerHTML = `<button type="button" id="semAnt" aria-label="Semana anterior">‹</button>
+    <div class="sn-txt"><b>${rango}</b><small>${etiqueta}</small></div>
+    ${semana!==0 ? `<button type="button" id="semHoy" class="sn-hoy">Hoy</button>` : ""}
+    <button type="button" id="semSig" aria-label="Semana siguiente">›</button>`;
+  $("semAnt").onclick = ()=>{ semana--; render(); };
+  $("semSig").onclick = ()=>{ semana++; render(); };
+  if ($("semHoy")) $("semHoy").onclick = ()=>{ semana = 0; ui.dia = hoyIdx(); render(); irAhora(); };
+}
+
 /* Teclado: flechas para cambiar de día (vista de un día) */
 document.addEventListener("keydown", e=>{
-  if (velo.classList.contains("on") || modoSemana() || !state) return;
+  if (velo.classList.contains("on") || modoSemana() || !state || vista!=="dia") return;
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName||"")) return;
-  if (e.key === "ArrowRight"){ ui.dia = (ui.dia+1)%7; saveUI(); render(); }
-  else if (e.key === "ArrowLeft"){ ui.dia = (ui.dia+6)%7; saveUI(); render(); }
+  if (e.key === "ArrowRight"){ if (ui.dia===6) semana++; ui.dia = (ui.dia+1)%7; saveUI(); render(); }
+  else if (e.key === "ArrowLeft"){ if (ui.dia===0) semana--; ui.dia = (ui.dia+6)%7; saveUI(); render(); }
 });
 
 
@@ -503,6 +695,8 @@ function selectorEmoji(cont, valor, onCambio, plegado){
 }
 
 /* ---------- Actividad ---------- */
+// Las actividades con fechas importadas existen una vez por día de la semana: se editan/borran juntas
+const mismaSerie = (x, a) => !!(x.fechas && a.fechas && x.ini===a.ini && (x.fin||"")===(a.fin||"") && x.nombre===a.nombre && (x.tipo||"")===(a.tipo||""));
 // borrador: datos del formulario guardados al ir a crear un tipo y volver
 function abrirActividad(actId, borrador){
   const p = persona(); if(!p) return;
@@ -528,10 +722,11 @@ function abrirActividad(actId, borrador){
       <div class="opciones" id="fTipos"></div>
       <label class="f">Icono</label>
       <div id="fEmoji"></div>
+      ${a && a.fechas ? `<div class="aviso-fechas">📅 Esta actividad solo ocurre en <b>fechas concretas</b> (calendario importado). Los cambios de hora, nombre, tipo o icono se aplican a todas sus fechas.</div>` : `
       <label class="f">${editando ? "Copiar también a otros días" : "Días"}</label>
-      <div class="dias" id="fDias"></div>
+      <div class="dias" id="fDias"></div>`}
       <div class="err" id="fErr"></div>
-      ${editando ? `<div class="acciones"><button type="button" class="btn peligro" id="fDel">Borrar actividad</button></div>` : ""}
+      ${editando ? `<div class="acciones"><button type="button" class="btn peligro" id="fDel">${a && a.fechas ? "Borrar todas las fechas" : "Borrar actividad"}</button></div>` : ""}
       <div class="pie">
         <button type="button" class="btn" id="fCancel">Cancelar</button>
         <button type="submit" class="btn pri">Guardar</button>
@@ -569,7 +764,7 @@ function abrirActividad(actId, borrador){
     });
   };
   tw.appendChild(nb);
-  const dw = $("fDias");
+  const dw = $("fDias") || document.createElement("div");
   DIAS.forEach(([c],i)=>{
     const b = document.createElement("button"); b.type="button"; b.textContent=c;
     if (editando && i===ui.dia){ b.disabled = true; b.style.opacity=.35; }
@@ -580,7 +775,10 @@ function abrirActividad(actId, borrador){
   $("fCancel").onclick = cerrar;
   const pid = p.id, dia = ui.dia;
   if (editando) botonBorrar($("fDel"), ()=>{
-    cambiar(s=>{ const pp=s.personas.find(x=>x.id===pid); if(pp) pp.dias[dia] = pp.dias[dia].filter(x=>x.id!==actId); });
+    const orig = a ? clone(a) : null;
+    cambiar(s=>{ const pp=s.personas.find(x=>x.id===pid); if(!pp) return;
+      if (orig && orig.fechas) pp.dias = pp.dias.map(l=>l.filter(x=>x.id!==actId && !mismaSerie(x, orig)));
+      else pp.dias[dia] = pp.dias[dia].filter(x=>x.id!==actId); });
     cerrar();
   });
   $("f").onsubmit = e=>{
@@ -596,7 +794,15 @@ function abrirActividad(actId, borrador){
     const copias = dias.map(()=>uid());
     cambiar(s=>{
       const pp = s.personas.find(x=>x.id===pid); if(!pp) return;
-      if (editando){ const i = pp.dias[dia].findIndex(x=>x.id===actId); if(i>=0) pp.dias[dia][i] = {...nuevo, id:actId}; }
+      if (editando){
+        const i = pp.dias[dia].findIndex(x=>x.id===actId);
+        if (i>=0){
+          const viejo = clone(pp.dias[dia][i]);
+          if (viejo.fechas){
+            pp.dias.forEach(l=>l.forEach((x,k)=>{ if (x.id===actId || mismaSerie(x, viejo)) l[k] = {...nuevo, id:x.id, fechas:x.fechas}; }));
+          } else pp.dias[dia][i] = {...nuevo, id:actId};
+        }
+      }
       dias.forEach((dd,k)=>{ if(!pp.dias[dd].some(x=>x.id===copias[k])) pp.dias[dd].push({...nuevo, id:copias[k]}); });
       pp.dias.forEach(l=>l.sort((x,y)=>min(x.ini)-min(y.ini)));
     });
@@ -745,10 +951,16 @@ function leerCodigo(texto){
   const limpias = [];
   acts.forEach((a,k)=>{
     const ini = String(a.ini||"").trim(), fin = String(a.fin||"").trim();
-    const dias = [...new Set([...String(a.dias||"").toUpperCase()].map(c=>LETRAS.indexOf(c)).filter(x=>x>=0))];
+    let fechas = null;
+    if (Array.isArray(a.fechas)){
+      fechas = [...new Set(a.fechas.map(String).filter(f=>/^\d{4}-\d{2}-\d{2}$/.test(f) && !isNaN(new Date(f+"T12:00"))))].sort();
+      if (!fechas.length) fechas = null;
+    }
+    let dias = [...new Set([...String(a.dias||"").toUpperCase()].map(c=>LETRAS.indexOf(c)).filter(x=>x>=0))];
+    if (fechas) dias = [...new Set(fechas.map(f=>(new Date(f+"T12:00").getDay()+6)%7))].sort();
     if (!a.nombre || !hhmm.test(ini) || (fin && !hhmm.test(fin)) || !dias.length || fin===ini)
       throw new Error(`Revisa la actividad ${k+1} («${String(a.nombre||"sin nombre").slice(0,30)}»): falta el nombre, la hora o el día.`);
-    limpias.push({nombre:String(a.nombre).slice(0,60), ini, fin, tipo:String(a.tipo||"").slice(0,24), emoji:String(a.emoji||"").slice(0,8), dias});
+    limpias.push({nombre:String(a.nombre).slice(0,60), ini, fin, tipo:String(a.tipo||"").slice(0,24), emoji:String(a.emoji||"").slice(0,8), dias, fechas});
   });
   const tipos = (Array.isArray(o.tipos) ? o.tipos : []).filter(t=>t && t.nombre).map(t=>({nombre:String(t.nombre).slice(0,24), color:safeColor(t.color), emoji:String(t.emoji||"").slice(0,8)}));
   return { nombre:String(o.nombre||"").slice(0,30), curso:String(o.curso||"").slice(0,15), tipos, acts:limpias };
@@ -792,7 +1004,7 @@ function previaImportar(imp){
           const t = imp.tipos.find(x=>x.nombre.toLowerCase()===n.toLowerCase()) || {color:"#7b8090", emoji:""};
           return `<span class="op" style="color:${t.color};background:${t.color}22">${esc(t.emoji)} ${esc(n)}</span>`; }).join("")}</div>` : ""}
       <label class="f">${total} ${total===1?"actividad":"actividades"}</label>
-      <div class="previa">${porDia.map((d,i)=> d.length ? `<div class="pd"><b>${DIAS[i][1]}</b>${d.map(a=>`<div class="pa"><span>${esc(a.ini)}${a.fin?"–"+esc(a.fin):""}</span> ${esc(a.emoji)} ${esc(a.nombre)}</div>`).join("")}</div>` : "").join("")}</div>
+      <div class="previa">${porDia.map((d,i)=> d.length ? `<div class="pd"><b>${DIAS[i][1]}</b>${d.map(a=>`<div class="pa"><span>${esc(a.ini)}${a.fin?"–"+esc(a.fin):""}</span> ${esc(a.emoji)} ${esc(a.nombre)}${a.fechas?` <small style="color:var(--muted)">· 📅 ${a.fechas.filter(f=>(new Date(f+"T12:00").getDay()+6)%7===i).length} fechas</small>`:""}</div>`).join("")}</div>` : "").join("")}</div>
       <div class="err" id="iErr"></div>
       <div class="pie">
         <button type="button" class="btn" id="iVolver">Volver</button>
@@ -842,7 +1054,9 @@ function previaImportar(imp){
         imp.acts.forEach((a,k)=>a.dias.forEach(d=>{
           const id = `i${sufijo}${k}_${d}`;
           if (p.dias[d].some(x=>x.id===id)) return;
-          p.dias[d].push({id, ini:a.ini, fin:a.fin, nombre:a.nombre, tipo:buscar(a.tipo)?.id || "", emoji:a.emoji || buscar(a.tipo)?.emoji || ""});
+          const nueva = {id, ini:a.ini, fin:a.fin, nombre:a.nombre, tipo:buscar(a.tipo)?.id || "", emoji:a.emoji || buscar(a.tipo)?.emoji || ""};
+          if (a.fechas) nueva.fechas = a.fechas.filter(f=>(new Date(f+"T12:00").getDay()+6)%7===d);
+          p.dias[d].push(nueva);
         }));
         p.dias.forEach(l=>l.sort((x,y)=>min(x.ini)-min(y.ini)));
       });
@@ -857,14 +1071,15 @@ function codigoDe(p){
   const usados = new Set();
   const acts = [];
   // agrupar actividades idénticas en varios días
-  const clave = a => [a.ini,a.fin||"",a.nombre,a.tipo,a.emoji||""].join("|");
+  const clave = a => [a.ini,a.fin||"",a.nombre,a.tipo,a.emoji||"",a.fechas?"F":""].join("|");
   const mapa = new Map();
   p.dias.forEach((d,i)=>d.forEach(a=>{
     const k = clave(a);
     if (!mapa.has(k)){ const t = tipo(a.tipo); usados.add(a.tipo); mapa.set(k, {dias:"", ini:a.ini, fin:a.fin||"", nombre:a.nombre, tipo:a.tipo?t.nombre:"", emoji:a.emoji||""}); }
     mapa.get(k).dias += LETRAS[i];
+    if (a.fechas) mapa.get(k).fechas = [...(mapa.get(k).fechas||[]), ...a.fechas];
   }));
-  mapa.forEach(v=>acts.push(v));
+  mapa.forEach(v=>{ if (v.fechas){ v.fechas = [...new Set(v.fechas)].sort(); } acts.push(v); });
   const tipos = state.tipos.filter(t=>usados.has(t.id)).map(t=>({nombre:t.nombre, color:t.color, emoji:t.emoji}));
   return JSON.stringify({agenda:1, nombre:p.nombre, curso:p.curso||"", tipos, actividades:acts});
 }
@@ -891,14 +1106,15 @@ function abrirExportar(){
 /* ---------- Panel «Ahora» ---------- */
 function estadoAhora(p){
   const n = now(), m = n.getHours()*60 + n.getMinutes(), d = hoyIdx(), ay = (d+6)%7;
+  const fHoy = fechaDia(d, 0), fAyer = new Date(fHoy); fAyer.setDate(fAyer.getDate()-1);
   const actuales = [];
-  p.dias[ay].forEach(a=>{ if (nocturna(a) && m < min(a.fin)) actuales.push(a); });
-  p.dias[d].forEach(a=>{
+  p.dias[ay].forEach(a=>{ if (nocturna(a) && m < min(a.fin) && ocurre(a, fAyer)) actuales.push(a); });
+  p.dias[d].filter(a=>ocurre(a, fHoy)).forEach(a=>{
     if (nocturna(a)) { if (m >= min(a.ini)) actuales.push(a); return; }
     const fin = a.fin ? min(a.fin) : min(a.ini)+30;
     if (m >= min(a.ini) && m < fin) actuales.push(a);
   });
-  const siguiente = p.dias[d].filter(a=>min(a.ini) > m && !actuales.includes(a)).sort((x,y)=>min(x.ini)-min(y.ini))[0] || null;
+  const siguiente = p.dias[d].filter(a=>ocurre(a, fHoy) && min(a.ini) > m && !actuales.includes(a)).sort((x,y)=>min(x.ini)-min(y.ini))[0] || null;
   return { actuales, siguiente };
 }
 function abrirAhora(){
@@ -920,7 +1136,7 @@ function abrirAhora(){
       <div class="ap-nom">${esc(p.nombre)}${p.curso ? ` <span>${esc(p.curso)}</span>` : ""}<i>›</i></div>
       ${actuales.length ? actuales.map(lineaAct).join("") : `<div class="ap-libre">Nada apuntado ahora</div>`}
       <div class="ap-sig">${siguiente ? `Después: <b>${esc(siguiente.ini)}</b> ${esc(siguiente.emoji || tipo(siguiente.tipo).emoji)} ${esc(siguiente.nombre)}` : "Nada más hoy"}</div>`;
-    box.onclick = ()=>{ ui.persona = p.id; ui.dia = hoyIdx(); saveUI(); cerrar(); render(); irAhora(); };
+    box.onclick = ()=>{ ui.persona = p.id; ui.dia = hoyIdx(); semana = 0; vista = "dia"; saveUI(); cerrar(); render(); irAhora(); };
     cont.appendChild(box);
   });
 }
@@ -960,24 +1176,34 @@ function generarICS(personas, incluir, aviso, hasta){
   let n = 0;
   personas.forEach(p=>p.dias.forEach((lista, di)=>lista.forEach(a=>{
     if (!incluir(p, a)) return;
-    const ini = new Date(hoy); ini.setDate(hoy.getDate() + ((di - hoyIdx() + 7) % 7));
-    if (ini > new Date(ay, am-1, ad)) return;
-    let finHHMM = a.fin, finD = new Date(ini);
-    if (!finHHMM){ const m = min(a.ini) + 30; finHHMM = pad(Math.floor(m/60)%24) + ":" + pad(m%60); if (m >= 1440) finD.setDate(finD.getDate()+1); }
-    else if (nocturna(a)) finD.setDate(finD.getDate()+1);
     const t = tipo(a.tipo);
     const titulo = `${a.emoji || t.emoji || ""} ${a.nombre}${personas.length > 1 ? " · " + p.nombre : ""}`.trim();
-    L.push("BEGIN:VEVENT",
-      `UID:${p.id}-${a.id}-${di}@agenda-semanal`,
-      `DTSTAMP:${stamp}`,
-      `DTSTART;TZID=Europe/Madrid:${fechaLocal(ini, a.ini)}`,
-      `DTEND;TZID=Europe/Madrid:${fechaLocal(finD, finHHMM)}`,
-      `RRULE:FREQ=WEEKLY;UNTIL=${until}`,
-      "SUMMARY:" + icsTxt(titulo),
-      "DESCRIPTION:" + icsTxt(`${p.nombre}${t.id ? " · " + t.nombre : ""}`),
-      "CATEGORIES:" + icsTxt(t.nombre));
-    if (aviso > 0) L.push("BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:" + icsTxt(titulo), `TRIGGER:-PT${aviso}M`, "END:VALARM");
-    L.push("END:VEVENT"); n++;
+    const limite = new Date(ay, am-1, ad);
+    // fechas de inicio: concretas (calendario laboral) o la próxima de ese día con repetición semanal
+    let inicios;
+    if (Array.isArray(a.fechas)){
+      inicios = a.fechas.map(f=>{ const [y,m,dd]=f.split("-").map(Number); return new Date(y,m-1,dd); })
+        .filter(f=>(f.getDay()+6)%7===di && f>=hoy && f<=limite);
+    } else {
+      const ini = new Date(hoy); ini.setDate(hoy.getDate() + ((di - hoyIdx() + 7) % 7));
+      inicios = ini <= limite ? [ini] : [];
+    }
+    inicios.forEach(ini=>{
+      let finHHMM = a.fin, finD = new Date(ini);
+      if (!finHHMM){ const m = min(a.ini) + 30; finHHMM = pad(Math.floor(m/60)%24) + ":" + pad(m%60); if (m >= 1440) finD.setDate(finD.getDate()+1); }
+      else if (nocturna(a)) finD.setDate(finD.getDate()+1);
+      L.push("BEGIN:VEVENT",
+        `UID:${p.id}-${a.id}-${di}${a.fechas ? "-" + iso(ini) : ""}@agenda-semanal`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART;TZID=Europe/Madrid:${fechaLocal(ini, a.ini)}`,
+        `DTEND;TZID=Europe/Madrid:${fechaLocal(finD, finHHMM)}`);
+      if (!a.fechas) L.push(`RRULE:FREQ=WEEKLY;UNTIL=${until}`);
+      L.push("SUMMARY:" + icsTxt(titulo),
+        "DESCRIPTION:" + icsTxt(`${p.nombre}${t.id ? " · " + t.nombre : ""}`),
+        "CATEGORIES:" + icsTxt(t.nombre));
+      if (aviso > 0) L.push("BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:" + icsTxt(titulo), `TRIGGER:-PT${aviso}M`, "END:VALARM");
+      L.push("END:VEVENT"); n++;
+    });
   })));
   L.push("END:VCALENDAR");
   return { texto: L.map(plegar).join("\r\n") + "\r\n", n };
@@ -1082,7 +1308,7 @@ function abrirCalendario(){
     const ps = state.personas.filter(p=>sel.has(p.id));
     return ps.length ? generarICS(ps, (p,a)=>!fuera.has(claveAct(p,a)), aviso, $("cHasta").value || finDeCurso()) : {texto:"", n:0};
   };
-  function resumen(){ const {n} = preparar(); $("cRes").textContent = n ? `Se crearán ${n} eventos semanales` : "No hay ninguna actividad marcada"; }
+  function resumen(){ const {n} = preparar(); $("cRes").textContent = n ? `Se crearán ${n} ${n===1?"evento":"eventos"} en el calendario` : "No hay ninguna actividad marcada"; }
   $("cHasta").onchange = resumen;
   pintarTipos(); resumen();
   const puedeCompartir = (()=>{ try { return !!(navigator.canShare && navigator.canShare({files:[new File(["x"],"a.ics",{type:"text/calendar"})]})); } catch(e){ return false; } })();
